@@ -1,12 +1,12 @@
 ---
-title: "Reanálisis estadístico de la producción orgánica de lechuga (Lactuca sativa L.) var. Crespa con fertirriego"
-author: "Miguel, Shirley, Karol y Nilver"
+title: "Reanálisis estadístico de un experimento factorial en el cultivo de lechuga (Lactuca sativa L.)"
+author: "Neylit Jhojani Yrigoin Cubas, Jair Alejandro Mallma Morales"
 lang: es
 format:
   html:
     toc: true
     toc-expand: true
-    toc-depth: 3
+    toc-depth: 2
     toc-location: left
     number-sections: true
     self-contained: true
@@ -23,7 +23,9 @@ editor_options:
 
 ## Base de datos
 
-Datos transcritos del Anexo 1 de la tesis de Nolberto Boza y Avila Curo (2023, Universidad Nacional de Huancavelica) y verificados contra sus ANOVA. Fuente de datos: [Google Sheets](https://docs.google.com/spreadsheets/d/1h-sN8CoS20QGJe26TQE2iRuQ6FTDnPooAz8t6Kl84LY/edit?usp=sharing) (pestaña `fb`). Las unidades y la descripción de cada variable están en la pestaña `diccionario`.
+> https://docs.google.com/spreadsheets/d/1r-V0iWepowbrN8ofTiKwqnJDOYkb_C9R_9NvnEt538c/edit?usp=sharing
+
+Datos de la tesis de Nolberto Boza y Avila Curo (2023), Universidad Nacional de Huancavelica: *Producción orgánica de lechuga (Lactuca sativa L.) Var. Crespa, con fertirriego en la provincia de Acobamba – Huancavelica*.
 
 ## Identificar los factores
 
@@ -31,7 +33,7 @@ Datos transcritos del Anexo 1 de la tesis de Nolberto Boza y Avila Curo (2023, U
    - R3: cada 3 días
    - R5: cada 5 días
 
-2. Factor B: Abonos orgánicos (`abono`)
+2. Factor B: Abonos orgánicos (`abonos`)
    - LOHF25TH75: Orina fermentada 25 % + Té de humus 75 %
    - LOHF50TH50: Orina fermentada 50 % + Té de humus 50 %
    - LOHF75TH25: Orina fermentada 75 % + Té de humus 25 %
@@ -41,17 +43,15 @@ Datos transcritos del Anexo 1 de la tesis de Nolberto Boza y Avila Curo (2023, U
 
 ## Identificar el modelo
 
-Diseño de Bloques Completos al Azar (DBCA) con arreglo factorial 2 × 6 y 4 bloques (48 unidades experimentales).
+Diseño de Bloques Completos al Azar (DBCA) con arreglo factorial 2 × 6 y 4 bloques.
 
 $$
 Y_{ijk} = \mu + \beta_k + \alpha_i + \gamma_j + (\alpha\gamma)_{ij} + \varepsilon_{ijk}
 $$
 
-Donde $\mu$ es la media general, $\beta_k$ el efecto del bloque $k$ ($k = 1, \dots, 4$), $\alpha_i$ el efecto del intervalo de riego $i$ ($i = 1, 2$), $\gamma_j$ el efecto del abono $j$ ($j = 1, \dots, 6$), $(\alpha\gamma)_{ij}$ la interacción riego × abono y $\varepsilon_{ijk}$ el error experimental.
+Donde $\beta_k$ es el efecto del bloque, $\alpha_i$ el efecto del riego, $\gamma_j$ el efecto del abono, $(\alpha\gamma)_{ij}$ la interacción riego × abono y $\varepsilon_{ijk}$ el error experimental.
 
-# Preparación
-
-## Paquetes
+# Activar los paquetes
 
 ```{r}
 #| label: paquetes
@@ -60,468 +60,867 @@ library(googlesheets4)
 library(dplyr)
 library(tidyr)
 library(tibble)
+library(knitr)
 library(emmeans)
 library(multcomp)
 library(ggplot2)
 library(inti)
-library(car)
-library(knitr)
 library(FactoMineR)
 library(factoextra)
 library(cowplot)
 library(corrplot)
-# ggrepel evita superposiciones en las etiquetas de los tratamientos.
-# Si falta, instalar una sola vez: install.packages("ggrepel")
 
 dir.create("manuscript", showWarnings = FALSE)
-```
 
-## Importar datos
-
-```{r}
-#| label: datos
-
+# La hoja es pública: se lee sin iniciar sesión en Google
 gs4_deauth()
 
-url_hoja <- "https://docs.google.com/spreadsheets/d/1h-sN8CoS20QGJe26TQE2iRuQ6FTDnPooAz8t6K184LY/edit?usp=sharing"
-fb <- googlesheets4::read_sheet(ss = url_hoja, sheet = "fb")
+gs <- "https://docs.google.com/spreadsheets/d/1r-V0iWepowbrN8ofTiKwqnJDOYkb_C9R_9NvnEt538c/edit?usp=sharing" %>%
+  as_sheets_id()
 
-fb <- fb %>%
+fb <- gs %>%
+  range_read(
+    ss = .,
+    sheet = "fb",
+    col_types = "c"
+  ) %>%
   mutate(
     riego = factor(riego, levels = c("R3", "R5")),
-    abono = factor(abono, levels = c("LOHF25TH75", "LOHF50TH50", "LOHF75TH25",
-                                     "OHF25TH75CE50", "OHF50TH50CE50", "OHF75TH25CE50")),
+    abonos = factor(abonos, levels = c("LOHF25TH75", "LOHF50TH50", "LOHF75TH25",
+                                       "OHF25TH75CE50", "OHF50TH50CE50", "OHF75TH25CE50")),
     bloque = factor(bloque, levels = c("I", "II", "III", "IV")),
-    clave = factor(clave)
+    trt = as.factor(trt),
+    across(
+      c(nmr_hojas_15, nmr_hojas_30, nmr_hojas_45, nmr_hojas_55,
+        logn_hojas_15, long_hojas_30, long_hojas_45, long_hojas_55,
+        long_raiz, peso_fresco, peso_seco,
+        cab_selecta, cab_mediana, cab_tercera),
+      ~ as.numeric(gsub(",", ".", .x))
+    )
   )
-
-str(fb)
 
 # Verificar los datos
-fb %>% summarise(across(where(is.numeric), ~ sum(is.na(.x))))  # NA por variable
-table(fb$riego, fb$abono)                                     # balance: 4 por celda
+str(fb)
+table(fb$riego, fb$abonos)
 ```
 
-## Función de análisis
+# Número de hojas a los 15 días
 
-Para cada variable se ajusta el ANOVA, se verifican los supuestos y se comparan las medias con Tukey (α = 0.05). Si la interacción riego × abono es significativa, se comparan los abonos dentro de cada intervalo de riego. Si no lo es, se comparan los efectos principales de riego y de abono por separado.
+## Análisis de variancia
 
 ```{r}
-#| label: funcion
+# aov() ó lm()
 
-analizar <- function(var, ylab, alpha = 0.05) {
+md <- aov(nmr_hojas_15 ~ bloque +
+            riego * abonos,
+          data = fb)
 
-  md <- aov(reformulate(c("bloque", "riego * abono"), response = var), data = fb)
-  av <- anova(md)
-  p_int <- av["riego:abono", "Pr(>F)"]
-  cv <- sqrt(av["Residuals", "Mean Sq"]) / mean(fb[[var]]) * 100
-
-  supuestos <- tibble(
-    prueba = c("Shapiro-Wilk (normalidad de residuos)",
-               "Levene (homogeneidad de varianzas)"),
-    p_valor = c(shapiro.test(residuals(md))$p.value,
-                leveneTest(reformulate("riego * abono", response = var), data = fb)$`Pr(>F)`[1])
-  ) %>%
-    mutate(cumple = ifelse(p_valor > alpha, "Sí", "No"))
-
-  letras <- function(spec) {
-    emmeans(md, spec) %>%
-      multcomp::cld(Letters = letters, decreasing = TRUE, adjust = "tukey") %>%
-      as.data.frame() %>%
-      mutate(.group = trimws(.group))
-  }
-
-  if (p_int < alpha) {
-
-    tab <- letras(~ abono | riego)
-
-    grafico <- plot_smr(
-      data = tab, type = "bar",
-      x = "abono", y = "emmean", group = "riego",
-      error = "SE", sig = ".group",
-      xlab = "Abonos", ylab = ylab, glab = "Riego",
-      xrotation = c(45, 1, 1)
-    )
-
-    comparacion <- "Interacción significativa: abonos comparados dentro de cada riego"
-
-  } else {
-
-    tab_r <- letras(~ riego)
-    tab_a <- letras(~ abono)
-    tab <- bind_rows(tab_r, tab_a)
-
-    g_r <- plot_smr(data = tab_r, type = "bar", x = "riego", y = "emmean",
-                    error = "SE", sig = ".group", xlab = "Riego", ylab = ylab)
-    g_a <- plot_smr(data = tab_a, type = "bar", x = "abono", y = "emmean",
-                    error = "SE", sig = ".group", xlab = "Abonos", ylab = ylab,
-                    xrotation = c(45, 1, 1))
-
-    grafico <- plot_grid(g_r, g_a, ncol = 2, rel_widths = c(1, 2), labels = "auto")
-
-    comparacion <- "Interacción no significativa: efectos principales de riego y abono"
-  }
-
-  list(
-    anova = kable(av, digits = 3,
-                  caption = sprintf("ANOVA de %s (CV = %.2f %%)", ylab, cv)),
-    supuestos = kable(supuestos, digits = 3, caption = "Supuestos del ANOVA"),
-    medias = kable(tab %>% dplyr::select(any_of(c("riego", "abono")), emmean, SE, .group),
-                   digits = 2, caption = comparacion),
-    grafico = grafico
-  )
-}
+anova(md)
 ```
 
-# Número de hojas
-
-## A los 15 días
+## Comparación de medias
 
 ```{r}
-r <- analizar("num_hojas_15", "Número de hojas/planta")
-r$anova
-r$supuestos
-r$medias
-r$grafico
+mc <- emmeans(md, ~ riego * abonos)
+
+# Letras de significancia
+tab <- multcomp::cld(mc,
+                     adjust = "tukey",
+                     Letters = letters,
+                     decreasing = TRUE)
+
+tab
 ```
 
-## A los 30 días
+## Representación gráfica
 
 ```{r}
-r <- analizar("num_hojas_30", "Número de hojas/planta")
-r$anova
-r$supuestos
-r$medias
-r$grafico
-```
+# Interacción riego × abonos
 
-## A los 45 días
+pl <- plot_smr(
+  data = tab,
+  x = "abonos",
+  y = "emmean",
+  group = "riego",
+  error = "SE",
+  sig = ".group",
+  ylab = "Hojas",
+  xrotation = c(45, 1, 1)
+) +
+  ggplot2::labs(x = "Abonos", y = "Número de hojas/planta")
+
+pl
+```
+# Número de hojas a los 30 días
+
+## Análisis de variancia
 
 ```{r}
-r <- analizar("num_hojas_45", "Número de hojas/planta")
-r$anova
-r$supuestos
-r$medias
-r$grafico
+# aov() ó lm()
+
+md <- aov(nmr_hojas_30 ~ bloque +
+            riego * abonos,
+          data = fb)
+
+anova(md)
 ```
 
-## A los 55 días
+## Comparación de medias
 
 ```{r}
-r <- analizar("num_hojas_55", "Número de hojas/planta")
-r$anova
-r$supuestos
-r$medias
-r$grafico
+mc <- emmeans(md, ~ riego * abonos)
+
+# Letras de significancia
+tab <- multcomp::cld(mc,
+                     adjust = "tukey",
+                     Letters = letters,
+                     decreasing = TRUE)
+
+tab
 ```
 
-# Longitud de hojas
-
-## A los 15 días
+## Representación gráfica
 
 ```{r}
-r <- analizar("long_hojas_15", "Longitud de hojas (cm)")
-r$anova
-r$supuestos
-r$medias
-r$grafico
-```
+# Interacción riego × abonos
 
-## A los 30 días
+pl <- plot_smr(
+  data = tab,
+  x = "abonos",
+  y = "emmean",
+  group = "riego",
+  error = "SE",
+  sig = ".group",
+  ylab = "Hojas",
+  xrotation = c(45, 1, 1)
+) +
+  ggplot2::labs(x = "Abonos", y = "Número de hojas/planta")
+
+pl
+```
+# Número de hojas a los 45 días
+
+## Análisis de variancia
 
 ```{r}
-r <- analizar("long_hojas_30", "Longitud de hojas (cm)")
-r$anova
-r$supuestos
-r$medias
-r$grafico
+# aov() ó lm()
+
+md <- aov(nmr_hojas_45 ~ bloque +
+            riego * abonos,
+          data = fb)
+
+anova(md)
 ```
 
-## A los 45 días
+## Comparación de medias
 
 ```{r}
-r <- analizar("long_hojas_45", "Longitud de hojas (cm)")
-r$anova
-r$supuestos
-r$medias
-r$grafico
+mc <- emmeans(md, ~ riego * abonos)
+
+# Letras de significancia
+tab <- multcomp::cld(mc,
+                     adjust = "tukey",
+                     Letters = letters,
+                     decreasing = TRUE)
+
+tab
 ```
 
-## A los 55 días
+## Representación gráfica
 
 ```{r}
-r <- analizar("long_hojas_55", "Longitud de hojas (cm)")
-r$anova
-r$supuestos
-r$medias
-r$grafico
+# Interacción riego × abonos
+
+pl <- plot_smr(
+  data = tab,
+  x = "abonos",
+  y = "emmean",
+  group = "riego",
+  error = "SE",
+  sig = ".group",
+  ylab = "Hojas",
+  xrotation = c(45, 1, 1)
+) +
+  ggplot2::labs(x = "Abonos", y = "Número de hojas/planta")
+
+pl
+```
+# Número de hojas a los 55 días
+
+## Análisis de variancia
+
+```{r}
+# aov() ó lm()
+
+md <- aov(nmr_hojas_55 ~ bloque +
+            riego * abonos,
+          data = fb)
+
+anova(md)
 ```
 
+## Comparación de medias
+
+```{r}
+mc <- emmeans(md, ~ riego * abonos)
+
+# Letras de significancia
+tab <- multcomp::cld(mc,
+                     adjust = "tukey",
+                     Letters = letters,
+                     decreasing = TRUE)
+
+tab
+```
+
+## Representación gráfica
+
+```{r}
+# Interacción riego × abonos
+
+pl <- plot_smr(
+  data = tab,
+  x = "abonos",
+  y = "emmean",
+  group = "riego",
+  error = "SE",
+  sig = ".group",
+  ylab = "Hojas",
+  xrotation = c(45, 1, 1)
+) +
+  ggplot2::labs(x = "Abonos", y = "Número de hojas/planta")
+
+pl
+```
+# Longitud de hojas a los 15 días
+
+## Análisis de variancia
+
+```{r}
+# aov() ó lm()
+
+md <- aov(logn_hojas_15 ~ bloque +
+            riego * abonos,
+          data = fb)
+
+anova(md)
+```
+
+## Comparación de medias
+
+```{r}
+mc <- emmeans(md, ~ riego * abonos)
+
+# Letras de significancia
+tab <- multcomp::cld(mc,
+                     adjust = "tukey",
+                     Letters = letters,
+                     decreasing = TRUE)
+
+tab
+```
+
+## Representación gráfica
+
+```{r}
+# Interacción riego × abonos
+
+pl <- plot_smr(
+  data = tab,
+  x = "abonos",
+  y = "emmean",
+  group = "riego",
+  error = "SE",
+  sig = ".group",
+  ylab = "Longitud",
+  xrotation = c(45, 1, 1)
+) +
+  ggplot2::labs(x = "Abonos", y = "Longitud de hojas (cm)")
+
+pl
+```
+# Longitud de hojas a los 30 días
+
+## Análisis de variancia
+
+```{r}
+# aov() ó lm()
+
+md <- aov(long_hojas_30 ~ bloque +
+            riego * abonos,
+          data = fb)
+
+anova(md)
+```
+
+## Comparación de medias
+
+```{r}
+mc <- emmeans(md, ~ riego * abonos)
+
+# Letras de significancia
+tab <- multcomp::cld(mc,
+                     adjust = "tukey",
+                     Letters = letters,
+                     decreasing = TRUE)
+
+tab
+```
+
+## Representación gráfica
+
+```{r}
+# Interacción riego × abonos
+
+pl <- plot_smr(
+  data = tab,
+  x = "abonos",
+  y = "emmean",
+  group = "riego",
+  error = "SE",
+  sig = ".group",
+  ylab = "Longitud",
+  xrotation = c(45, 1, 1)
+) +
+  ggplot2::labs(x = "Abonos", y = "Longitud de hojas (cm)")
+
+pl
+```
+# Longitud de hojas a los 45 días
+
+## Análisis de variancia
+
+```{r}
+# aov() ó lm()
+
+md <- aov(long_hojas_45 ~ bloque +
+            riego * abonos,
+          data = fb)
+
+anova(md)
+```
+
+## Comparación de medias
+
+```{r}
+mc <- emmeans(md, ~ riego * abonos)
+
+# Letras de significancia
+tab <- multcomp::cld(mc,
+                     adjust = "tukey",
+                     Letters = letters,
+                     decreasing = TRUE)
+
+tab
+```
+
+## Representación gráfica
+
+```{r}
+# Interacción riego × abonos
+
+pl <- plot_smr(
+  data = tab,
+  x = "abonos",
+  y = "emmean",
+  group = "riego",
+  error = "SE",
+  sig = ".group",
+  ylab = "Longitud",
+  xrotation = c(45, 1, 1)
+) +
+  ggplot2::labs(x = "Abonos", y = "Longitud de hojas (cm)")
+
+pl
+```
+# Longitud de hojas a los 55 días
+
+## Análisis de variancia
+
+```{r}
+# aov() ó lm()
+
+md <- aov(long_hojas_55 ~ bloque +
+            riego * abonos,
+          data = fb)
+
+anova(md)
+```
+
+## Comparación de medias
+
+```{r}
+mc <- emmeans(md, ~ riego * abonos)
+
+# Letras de significancia
+tab <- multcomp::cld(mc,
+                     adjust = "tukey",
+                     Letters = letters,
+                     decreasing = TRUE)
+
+tab
+```
+
+## Representación gráfica
+
+```{r}
+# Interacción riego × abonos
+
+pl <- plot_smr(
+  data = tab,
+  x = "abonos",
+  y = "emmean",
+  group = "riego",
+  error = "SE",
+  sig = ".group",
+  ylab = "Longitud",
+  xrotation = c(45, 1, 1)
+) +
+  ggplot2::labs(x = "Abonos", y = "Longitud de hojas (cm)")
+
+pl
+```
 # Longitud de raíz
 
+## Análisis de variancia
+
 ```{r}
-r <- analizar("long_raiz", "Longitud de raíz (cm)")
-r$anova
-r$supuestos
-r$medias
-r$grafico
+# aov() ó lm()
+
+md <- aov(long_raiz ~ bloque +
+            riego * abonos,
+          data = fb)
+
+anova(md)
 ```
 
+## Comparación de medias
+
+```{r}
+mc <- emmeans(md, ~ riego * abonos)
+
+# Letras de significancia
+tab <- multcomp::cld(mc,
+                     adjust = "tukey",
+                     Letters = letters,
+                     decreasing = TRUE)
+
+tab
+```
+
+## Representación gráfica
+
+```{r}
+# Interacción riego × abonos
+
+pl <- plot_smr(
+  data = tab,
+  x = "abonos",
+  y = "emmean",
+  group = "riego",
+  error = "SE",
+  sig = ".group",
+  ylab = "Raiz",
+  xrotation = c(45, 1, 1)
+) +
+  ggplot2::labs(x = "Abonos", y = "Longitud de raíz (cm)")
+
+pl
+```
 # Peso fresco
 
+## Análisis de variancia
+
 ```{r}
-r <- analizar("peso_fresco", "Peso fresco (g/planta)")
-r$anova
-r$supuestos
-r$medias
-r$grafico
+# aov() ó lm()
+
+md <- aov(peso_fresco ~ bloque +
+            riego * abonos,
+          data = fb)
+
+anova(md)
 ```
 
+## Comparación de medias
+
+```{r}
+mc <- emmeans(md, ~ riego * abonos)
+
+# Letras de significancia
+tab <- multcomp::cld(mc,
+                     adjust = "tukey",
+                     Letters = letters,
+                     decreasing = TRUE)
+
+tab
+```
+
+## Representación gráfica
+
+```{r}
+# Interacción riego × abonos
+
+pl <- plot_smr(
+  data = tab,
+  x = "abonos",
+  y = "emmean",
+  group = "riego",
+  error = "SE",
+  sig = ".group",
+  ylab = "Peso",
+  xrotation = c(45, 1, 1)
+) +
+  ggplot2::labs(x = "Abonos", y = "Peso fresco (g/planta)")
+
+pl
+```
 # Peso seco
 
-```{r}
-r <- analizar("peso_seco", "Peso seco (g/planta)")
-r$anova
-r$supuestos
-r$medias
-r$grafico
-```
-
-# Clasificación de cabezas
-
-Los conteos de cabezas (de 0 a 7 por parcela) se analizan con la transformación $\sqrt{x + 0.5}$, igual que en la tesis. Las medias y los gráficos están en la escala transformada.
-
-## Cabeza selecta
+## Análisis de variancia
 
 ```{r}
-r <- analizar("cab_selecta", "Cabezas selectas (transformado)")
-r$anova
-r$supuestos
-r$medias
-r$grafico
+# aov() ó lm()
+
+md <- aov(peso_seco ~ bloque +
+            riego * abonos,
+          data = fb)
+
+anova(md)
 ```
 
-## Cabeza mediana
+## Comparación de medias
 
 ```{r}
-r <- analizar("cab_mediana", "Cabezas medianas (transformado)")
-r$anova
-r$supuestos
-r$medias
-r$grafico
+mc <- emmeans(md, ~ riego * abonos)
+
+# Letras de significancia
+tab <- multcomp::cld(mc,
+                     adjust = "tukey",
+                     Letters = letters,
+                     decreasing = TRUE)
+
+tab
 ```
 
-## Cabeza tercera
+## Representación gráfica
 
 ```{r}
-r <- analizar("cab_tercera", "Cabezas de tercera (transformado)")
-r$anova
-r$supuestos
-r$medias
-r$grafico
+# Interacción riego × abonos
+
+pl <- plot_smr(
+  data = tab,
+  x = "abonos",
+  y = "emmean",
+  group = "riego",
+  error = "SE",
+  sig = ".group",
+  ylab = "Peso",
+  xrotation = c(45, 1, 1)
+) +
+  ggplot2::labs(x = "Abonos", y = "Peso seco (g/planta)")
+
+pl
+```
+# Cabeza selecta
+
+## Análisis de variancia
+
+```{r}
+# aov() ó lm()
+
+md <- aov(cab_selecta ~ bloque +
+            riego * abonos,
+          data = fb)
+
+anova(md)
 ```
 
+## Comparación de medias
+
+```{r}
+mc <- emmeans(md, ~ riego * abonos)
+
+# Letras de significancia
+tab <- multcomp::cld(mc,
+                     adjust = "tukey",
+                     Letters = letters,
+                     decreasing = TRUE)
+
+tab
+```
+
+## Representación gráfica
+
+```{r}
+# Interacción riego × abonos
+
+pl <- plot_smr(
+  data = tab,
+  x = "abonos",
+  y = "emmean",
+  group = "riego",
+  error = "SE",
+  sig = ".group",
+  ylab = "Cabezas",
+  xrotation = c(45, 1, 1)
+) +
+  ggplot2::labs(x = "Abonos", y = "Cabezas selectas (√(x + 0.5))")
+
+pl
+```
+# Cabeza mediana
+
+## Análisis de variancia
+
+```{r}
+# aov() ó lm()
+
+md <- aov(cab_mediana ~ bloque +
+            riego * abonos,
+          data = fb)
+
+anova(md)
+```
+
+## Comparación de medias
+
+```{r}
+mc <- emmeans(md, ~ riego * abonos)
+
+# Letras de significancia
+tab <- multcomp::cld(mc,
+                     adjust = "tukey",
+                     Letters = letters,
+                     decreasing = TRUE)
+
+tab
+```
+
+## Representación gráfica
+
+```{r}
+# Interacción riego × abonos
+
+pl <- plot_smr(
+  data = tab,
+  x = "abonos",
+  y = "emmean",
+  group = "riego",
+  error = "SE",
+  sig = ".group",
+  ylab = "Cabezas",
+  xrotation = c(45, 1, 1)
+) +
+  ggplot2::labs(x = "Abonos", y = "Cabezas medianas (√(x + 0.5))")
+
+pl
+```
+# Cabeza tercera
+
+## Análisis de variancia
+
+```{r}
+# aov() ó lm()
+
+md <- aov(cab_tercera ~ bloque +
+            riego * abonos,
+          data = fb)
+
+anova(md)
+```
+
+## Comparación de medias
+
+```{r}
+mc <- emmeans(md, ~ riego * abonos)
+
+# Letras de significancia
+tab <- multcomp::cld(mc,
+                     adjust = "tukey",
+                     Letters = letters,
+                     decreasing = TRUE)
+
+tab
+```
+
+## Representación gráfica
+
+```{r}
+# Interacción riego × abonos
+
+pl <- plot_smr(
+  data = tab,
+  x = "abonos",
+  y = "emmean",
+  group = "riego",
+  error = "SE",
+  sig = ".group",
+  ylab = "Cabezas",
+  xrotation = c(45, 1, 1)
+) +
+  ggplot2::labs(x = "Abonos", y = "Cabezas de tercera (√(x + 0.5))")
+
+pl
+```
 # Análisis multivariado
 
-Se usan las medias de los 12 tratamientos para las variables al final del ciclo. Con solo 12 individuos, los resultados del PCA y del agrupamiento son exploratorios.
-
-## Componentes principales y agrupamiento
-
-Los gráficos de individuos identifican cada tratamiento con un código corto (T01, T02, etc.) para evitar la superposición de nombres. Debajo de la figura se muestra la equivalencia con el nombre completo del tratamiento. Los cálculos del PCA y el HCPC se mantienen sin modificaciones.
-
 ```{r}
-#| label: pca
-#| fig-width: 17
-#| fig-height: 12
-#| fig-dpi: 150
-#| out-width: "100%"
-#| fig-align: center
-#| column: screen
-#| fig-cap: "Análisis multivariado: variables, calidad de representación, individuos y agrupamiento jerárquico."
+#| label: multivariado
 
-# Medias de los 12 tratamientos; mismo conjunto de variables del archivo original.
 dtx <- fb %>%
-  group_by(riego, abono, clave) %>%
-  summarise(across(c(num_hojas_55, long_hojas_55, long_raiz, peso_fresco, peso_seco,
-                     cab_selecta_n, cab_mediana_n, cab_tercera_n),
-                   ~ mean(.x, na.rm = TRUE)),
-            .groups = "drop") %>%
-  as.data.frame() %>%
-  column_to_rownames("clave")
+  dplyr::select(!c("bloque", "trt")) %>%
+  group_by(riego, abonos) %>%
+  summarise(across(where(is.numeric), ~ mean(.x, na.rm = TRUE)), .groups = "drop") %>%
+  unite("rowname", c("riego", "abonos"), remove = FALSE, sep = "-") %>%
+  column_to_rownames() %>%
+  as.data.frame()
 
 str(dtx)
 
 mv <- dtx %>%
-  PCA(scale.unit = TRUE, graph = FALSE, quali.sup = c(1, 2))
+  PCA(scale.unit = TRUE
+      , graph = FALSE
+      , quali.sup = c(1, 2))
 
-# Misma información del PCA, con etiquetas de variables separadas.
-p_var <- fviz_pca_var(
-  mv, repel = TRUE, labelsize = 3.1, col.var = "black"
-) +
-  labs(title = "PCA - variables") +
-  theme_minimal(base_size = 12) +
-  theme(plot.title = element_text(hjust = 0.5, face = "bold"))
+var <- mv %>%
+  plot.PCA(choix = c("var"), cex = 0.7)
 
-p_cos <- fviz_pca_var(
-  mv, col.var = "cos2",
-  gradient.cols = c("red", "forestgreen", "blue"),
-  repel = TRUE, labelsize = 3
-) +
-  labs(title = "PCA - calidad de representación (cos²)") +
-  theme_minimal(base_size = 12) +
-  theme(plot.title = element_text(hjust = 0.5, face = "bold"))
+var
 
-# Crear etiquetas breves SOLO para la visualización. No se cambian datos ni cálculos.
-codigos <- sprintf("T%02d", seq_len(nrow(dtx)))
-coordenadas_ind <- as.data.frame(mv$ind$coord[, 1:2, drop = FALSE])
-coordenadas_ind$Codigo <- codigos
+cos <- mv %>%
+  fviz_pca_var(col.var = "cos2"
+               , gradient.cols = c("red", "forestgreen", "blue")
+               , repel = TRUE
+               , labelsize = 2)
 
-p_ind <- fviz_pca_ind(
-  mv,
-  geom.ind = "point", label = "none",
-  habillage = 1, palette = c("blue", "red"),
-  pointsize = 2.5
-) +
-  ggrepel::geom_text_repel(
-    data = coordenadas_ind,
-    aes(x = Dim.1, y = Dim.2, label = Codigo),
-    inherit.aes = FALSE,
-    color = "black", size = 3.1, seed = 2026,
-    max.overlaps = Inf, box.padding = 0.35,
-    point.padding = 0.2, min.segment.length = 0
-  ) +
-  labs(title = "PCA - individuos (códigos de tratamientos)") +
-  theme_minimal(base_size = 12) +
-  theme(plot.title = element_text(hjust = 0.5, face = "bold"))
+cos
 
-# Se mantiene la decisión original de presentar 3 grupos.
-cls <- HCPC(mv, nb.clust = 3, graph = FALSE)
+ind <- mv %>%
+  plot.PCA(choix = c("ind")
+           , cex = 0.7
+           , label = "ind"
+           , invisible = "quali"
+           , col.hab = c("blue", "red")
+           , habillage = 1
+           )
 
-# Solo puntos en el HCPC: los nombres completos no tapan los grupos.
-# La tabla de códigos a continuación identifica los tratamientos.
-p_cls <- fviz_cluster(
-  cls, geom = "point", repel = FALSE,
-  show.clust.cent = FALSE,
-  main = "Agrupamiento jerárquico (HCPC)"
-) +
-  theme_minimal(base_size = 12) +
-  theme(plot.title = element_text(hjust = 0.5, face = "bold"))
+ind
 
-pcainfo <- get_pca(mv)
+pcainfo <- factoextra::get_pca(mv); pcainfo
 
-pcainfo$cor %>% kable(digits = 2, caption = "Correlación de las variables con los componentes")
-pcainfo$contrib %>% kable(digits = 2, caption = "Contribución de las variables (%)")
-pcainfo$cos2 %>% kable(digits = 2, caption = "Cos2 de las variables")
+pcainfo$cor %>% kable(digits = 3, caption = "Correlación de las variables")
+pcainfo$contrib %>% kable(digits = 3, caption = "Contribución de las variables")
+pcainfo$cos2 %>% kable(digits = 3, caption = "Cos2 de las variables")
 
-cls$data.clust %>% dplyr::select(clust) %>%
-  kable(caption = "Grupo asignado a cada tratamiento")
+# Con 12 tratamientos, el corte automático (nb.clust = -1) deja grupos de
+# un solo tratamiento; se fija en 3 grupos
+cls <- mv %>% HCPC(nb.clust = 3, graph = FALSE)
+
+map <- \() {plot.HCPC(cls, choice = "map", draw.tree = FALSE)}
+
+cls$call$t$tree
+cls$data.clust %>%
+  kable(digits = 2, caption = "Grupo de cada tratamiento")
+cls$desc.var$quanti %>%
+  kable(digits = 3, caption = "Variables cuantitativas que caracterizan a cada grupo")
 table(cls$data.clust$clust) %>%
   kable(col.names = c("Grupo", "Tratamientos"), caption = "Tratamientos por grupo")
 
-# Reunir los cuatro gráficos en una sola figura grande (2 x 2).
-fig_mv <- plot_grid(
-  p_var, p_cos, p_ind, p_cls,
-  ncol = 2, labels = c("a", "b", "c", "d"),
-  label_size = 16, rel_heights = c(1, 1.05)
-)
+plot <- list(var, cos, ind, map) %>%
+  plot_grid(plotlist = ., ncol = 2, labels = "auto") %>%
+  ggsave(plot = ., "manuscript/multivariado.jpg", units = "cm"
+         , width = 30, height = 30)
 
-ggsave(
-  filename = "manuscript/multivariado.jpg", plot = fig_mv,
-  units = "cm", width = 44, height = 32, dpi = 300, bg = "white"
-)
-
-fig_mv
-
-# Equivalencia de los códigos mostrados en el panel c con nombres originales.
-# Se asignan grupos por coincidencia del nombre, sin alterar los resultados.
-indice_grupo <- match(rownames(dtx), rownames(cls$data.clust))
-mapa_tratamientos <- tibble(
-  Codigo = codigos,
-  Tratamiento = rownames(dtx),
-  Riego = as.character(dtx$riego),
-  Abono = as.character(dtx$abono),
-  Grupo_HCPC = as.character(cls$data.clust$clust[indice_grupo])
-)
-knitr::kable(mapa_tratamientos,
-             caption = "Correspondencia de códigos, tratamientos y grupos HCPC")
+plot %>% include_graphics()
 ```
 
-## Varianza explicada y contribuciones
+## Información del PCA
 
 ```{r}
 #| label: pca-info
-#| fig-width: 17
-#| fig-height: 12
-#| fig-dpi: 150
-#| out-width: "100%"
-#| fig-align: center
-#| column: screen
-#| fig-cap: "Varianza explicada, contribución a las dos primeras dimensiones y calidad de representación (cos²) de las variables."
 
-c1 <- fviz_eig(
-  mv, addlabels = TRUE, hjust = 0.05,
-  barfill = "white", barcolor = "darkblue", linecolor = "red"
-) +
-  labs(title = "PCA - porcentaje de varianza explicada",
-       y = "Varianza (%)") +
-  theme_minimal(base_size = 12) +
-  theme(plot.title = element_text(hjust = 0.5))
+c1 <- fviz_eig(mv,
+               addlabels = TRUE,
+               hjust = 0.05,
+               barfill = "white",
+               barcolor = "darkblue",
+               linecolor = "red") +
+  labs(
+    title = "PCA - porcentaje de varianza explicada",
+    y = "Varianza (%)") +
+  theme_minimal() +
+  theme(
+    axis.text.x = element_text(size = 12)
+    , axis.text.y = element_text(size = 12)
+  )
 
-c2 <- fviz_contrib(
-  mv, choice = "var", axes = 1,
-  fill = "white", color = "darkblue", sort.val = "asc"
-) +
+c1
+
+c2 <- fviz_contrib(mv,
+                   choice = "var",
+                   axes = 1,
+                   top = 30,
+                   fill = "white",
+                   color = "darkblue"
+                   , sort.val = "asc"
+                   ) +
   labs(title = "Dim 1 - contribución de las variables", x = "") +
   coord_flip() +
-  theme_minimal(base_size = 12) +
-  theme(axis.text.y = element_text(size = 10),
-        plot.title = element_text(hjust = 0.5))
+  theme(
+    axis.text.x = element_text(size = 12)
+    , axis.text.y = element_text(size = 12)
+  )
 
-c3 <- fviz_contrib(
-  mv, choice = "var", axes = 2,
-  fill = "white", color = "darkblue", sort.val = "asc"
-) +
+c2
+
+c3 <- fviz_contrib(mv,
+                   choice = "var",
+                   axes = 2,
+                   top = 30,
+                   fill = "white",
+                   color = "darkblue"
+                   , sort.val = "asc"
+                   ) +
   labs(title = "Dim 2 - contribución de las variables", x = "") +
   coord_flip() +
-  theme_minimal(base_size = 12) +
-  theme(axis.text.y = element_text(size = 10),
-        plot.title = element_text(hjust = 0.5))
+  theme(
+    axis.text.x = element_text(size = 12)
+    , axis.text.y = element_text(size = 12)
+  )
 
-# Versión legible del cos², sin la barra de colores superpuesta.
-# Usa EXACTAMENTE los valores de pcainfo$cos2, sin recalcular el PCA.
-matriz_cos2 <- as.matrix(pcainfo$cos2[, 1:2, drop = FALSE])
-datos_cos2 <- as.data.frame(as.table(matriz_cos2))
-colnames(datos_cos2) <- c("Variable", "Dimension", "Cos2")
-datos_cos2$Variable <- factor(
-  datos_cos2$Variable, levels = rev(rownames(matriz_cos2))
-)
+c3
 
-c4 <- ggplot(datos_cos2, aes(x = Dimension, y = Variable, fill = Cos2)) +
-  geom_tile(color = "grey75", linewidth = 0.6) +
-  geom_text(aes(label = sprintf("%.2f", Cos2)),
-            size = 4, color = "black") +
-  scale_fill_gradient(low = "white", high = "steelblue3",
-                      limits = c(0, 1)) +
-  labs(title = "Calidad de representación (cos²)",
-       x = "Dimensiones", y = "") +
-  theme_minimal(base_size = 12) +
-  theme(panel.grid = element_blank(),
-        legend.position = "none",
-        axis.text.y = element_text(size = 10),
-        plot.title = element_text(hjust = 0.5))
+lpanel <- list(c1, c2, c3) %>%
+  plot_grid(plotlist = ., ncol = 1, labels = "auto"
+            , rel_heights = c(1, 1.2, 1.2))
 
-# Cuatro paneles juntos, con suficiente espacio para cada gráfico.
-lpanel <- plot_grid(
-  c1, c2, c3, c4,
-  ncol = 2, labels = c("a", "b", "c", "d"),
-  label_size = 16, rel_heights = c(1, 1.15)
-)
+rpanel <- \() {
 
-ggsave(
-  filename = "manuscript/contribucion.jpg", plot = lpanel,
-  units = "cm", width = 44, height = 32, dpi = 300, bg = "white"
-)
+pcainfo$cos2[, 1:2] %>%
+  corrplot(
+    is.corr = FALSE
+    , method = "number",
+    type = "full",
+    tl.col = "black",
+    tl.srt = 45,
+    tl.cex = 0.9,
+    number.cex = 0.5,
+    number.digits = 1,
+    cl.cex = 0.7,
+    cl.pos = "r",
+    cl.align.text = "r",
+    cl.ratio = 4
+  )
 
-# Un solo gráfico en RStudio y en la página web, no cuatro sueltos.
-lpanel
+}
+
+grid <- list(lpanel, rpanel) %>%
+  plot_grid(plotlist = ., ncol = 2, labels = c("", "d"))
+
+plot <- grid %>%
+  ggsave(plot = ., "manuscript/contribucion.jpg"
+         , units = "cm"
+         , width = 28, height = 36)
+
+plot %>% include_graphics()
 ```
