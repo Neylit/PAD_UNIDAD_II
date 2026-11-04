@@ -23,7 +23,7 @@ editor_options:
 
 ## Base de datos
 
-Datos transcritos del Anexo 1 de la tesis de Nolberto Boza y Avila Curo (2023, Universidad Nacional de Huancavelica) y verificados contra sus ANOVA. Archivo: `lechuga_fertirriego_corregido.xlsx` (hoja `fb`). Las unidades y la descripción de cada variable están en la hoja `diccionario`.
+Datos transcritos del Anexo 1 de la tesis de Nolberto Boza y Avila Curo (2023, Universidad Nacional de Huancavelica) y verificados contra sus ANOVA. Fuente de datos: [Google Sheets](https://docs.google.com/spreadsheets/d/1h-sN8CoS20QGJe26TQE2iRuQ6FTDnPooAz8t6Kl84LY/edit?usp=sharing) (pestaña `fb`). Las unidades y la descripción de cada variable están en la pestaña `diccionario`.
 
 ## Identificar los factores
 
@@ -56,7 +56,6 @@ Donde $\mu$ es la media general, $\beta_k$ el efecto del bloque $k$ ($k = 1, \do
 ```{r}
 #| label: paquetes
 
-library(readxl)
 library(googlesheets4)
 library(dplyr)
 library(tidyr)
@@ -71,6 +70,8 @@ library(FactoMineR)
 library(factoextra)
 library(cowplot)
 library(corrplot)
+# ggrepel evita superposiciones en las etiquetas de los tratamientos.
+# Si falta, instalar una sola vez: install.packages("ggrepel")
 
 dir.create("manuscript", showWarnings = FALSE)
 ```
@@ -80,13 +81,10 @@ dir.create("manuscript", showWarnings = FALSE)
 ```{r}
 #| label: datos
 
-# Para leer desde Google Sheets, reemplaza la URL y descomenta estas líneas:
-# gs4_deauth()
-# fb <- "https://docs.google.com/spreadsheets/d/..." %>%
-#   as_sheets_id() %>%
-#   range_read(sheet = "fb")
+gs4_deauth()
 
-fb <- read_excel("lechuga_fertirriego_corregido.xlsx", sheet = "fb")
+url_hoja <- "https://docs.google.com/spreadsheets/d/1h-sN8CoS20QGJe26TQE2iRuQ6FTDnPooAz8t6K184LY/edit?usp=sharing"
+fb <- googlesheets4::read_sheet(ss = url_hoja, sheet = "fb")
 
 fb <- fb %>%
   mutate(
@@ -329,9 +327,19 @@ Se usan las medias de los 12 tratamientos para las variables al final del ciclo.
 
 ## Componentes principales y agrupamiento
 
+Los gráficos de individuos identifican cada tratamiento con un código corto (T01, T02, etc.) para evitar la superposición de nombres. Debajo de la figura se muestra la equivalencia con el nombre completo del tratamiento. Los cálculos del PCA y el HCPC se mantienen sin modificaciones.
+
 ```{r}
 #| label: pca
+#| fig-width: 17
+#| fig-height: 12
+#| fig-dpi: 150
+#| out-width: "100%"
+#| fig-align: center
+#| column: screen
+#| fig-cap: "Análisis multivariado: variables, calidad de representación, individuos y agrupamiento jerárquico."
 
+# Medias de los 12 tratamientos; mismo conjunto de variables del archivo original.
 dtx <- fb %>%
   group_by(riego, abono, clave) %>%
   summarise(across(c(num_hojas_55, long_hojas_55, long_raiz, peso_fresco, peso_seco,
@@ -346,22 +354,58 @@ str(dtx)
 mv <- dtx %>%
   PCA(scale.unit = TRUE, graph = FALSE, quali.sup = c(1, 2))
 
-p_var <- plot.PCA(mv, choix = "var", cex = 0.7)
+# Misma información del PCA, con etiquetas de variables separadas.
+p_var <- fviz_pca_var(
+  mv, repel = TRUE, labelsize = 3.1, col.var = "black"
+) +
+  labs(title = "PCA - variables") +
+  theme_minimal(base_size = 12) +
+  theme(plot.title = element_text(hjust = 0.5, face = "bold"))
 
-p_cos <- fviz_pca_var(mv, col.var = "cos2",
-                      gradient.cols = c("red", "forestgreen", "blue"),
-                      repel = TRUE, labelsize = 3)
+p_cos <- fviz_pca_var(
+  mv, col.var = "cos2",
+  gradient.cols = c("red", "forestgreen", "blue"),
+  repel = TRUE, labelsize = 3
+) +
+  labs(title = "PCA - calidad de representación (cos²)") +
+  theme_minimal(base_size = 12) +
+  theme(plot.title = element_text(hjust = 0.5, face = "bold"))
 
-p_ind <- plot.PCA(mv, choix = "ind", cex = 0.7, label = "ind",
-                  invisible = "quali", habillage = 1,
-                  col.hab = c("blue", "red"))
+# Crear etiquetas breves SOLO para la visualización. No se cambian datos ni cálculos.
+codigos <- sprintf("T%02d", seq_len(nrow(dtx)))
+coordenadas_ind <- as.data.frame(mv$ind$coord[, 1:2, drop = FALSE])
+coordenadas_ind$Codigo <- codigos
 
-# Con 12 tratamientos, el corte automático (nb.clust = -1) da grupos de un solo
-# tratamiento; se fija en 3 grupos para facilitar la interpretación.
+p_ind <- fviz_pca_ind(
+  mv,
+  geom.ind = "point", label = "none",
+  habillage = 1, palette = c("blue", "red"),
+  pointsize = 2.5
+) +
+  ggrepel::geom_text_repel(
+    data = coordenadas_ind,
+    aes(x = Dim.1, y = Dim.2, label = Codigo),
+    inherit.aes = FALSE,
+    color = "black", size = 3.1, seed = 2026,
+    max.overlaps = Inf, box.padding = 0.35,
+    point.padding = 0.2, min.segment.length = 0
+  ) +
+  labs(title = "PCA - individuos (códigos de tratamientos)") +
+  theme_minimal(base_size = 12) +
+  theme(plot.title = element_text(hjust = 0.5, face = "bold"))
+
+# Se mantiene la decisión original de presentar 3 grupos.
 cls <- HCPC(mv, nb.clust = 3, graph = FALSE)
 
-p_cls <- fviz_cluster(cls, repel = TRUE, show.clust.cent = FALSE,
-                      main = "Agrupamiento jerárquico (HCPC)")
+# Solo puntos en el HCPC: los nombres completos no tapan los grupos.
+# La tabla de códigos a continuación identifica los tratamientos.
+p_cls <- fviz_cluster(
+  cls, geom = "point", repel = FALSE,
+  show.clust.cent = FALSE,
+  main = "Agrupamiento jerárquico (HCPC)"
+) +
+  theme_minimal(base_size = 12) +
+  theme(plot.title = element_text(hjust = 0.5, face = "bold"))
 
 pcainfo <- get_pca(mv)
 
@@ -374,52 +418,110 @@ cls$data.clust %>% dplyr::select(clust) %>%
 table(cls$data.clust$clust) %>%
   kable(col.names = c("Grupo", "Tratamientos"), caption = "Tratamientos por grupo")
 
-fig_mv <- plot_grid(p_var, p_cos, p_ind, p_cls, ncol = 2, labels = "auto")
+# Reunir los cuatro gráficos en una sola figura grande (2 x 2).
+fig_mv <- plot_grid(
+  p_var, p_cos, p_ind, p_cls,
+  ncol = 2, labels = c("a", "b", "c", "d"),
+  label_size = 16, rel_heights = c(1, 1.05)
+)
 
-ggsave(plot = fig_mv, "manuscript/multivariado.jpg", units = "cm",
-       width = 30, height = 30)
+ggsave(
+  filename = "manuscript/multivariado.jpg", plot = fig_mv,
+  units = "cm", width = 44, height = 32, dpi = 300, bg = "white"
+)
 
 fig_mv
+
+# Equivalencia de los códigos mostrados en el panel c con nombres originales.
+# Se asignan grupos por coincidencia del nombre, sin alterar los resultados.
+indice_grupo <- match(rownames(dtx), rownames(cls$data.clust))
+mapa_tratamientos <- tibble(
+  Codigo = codigos,
+  Tratamiento = rownames(dtx),
+  Riego = as.character(dtx$riego),
+  Abono = as.character(dtx$abono),
+  Grupo_HCPC = as.character(cls$data.clust$clust[indice_grupo])
+)
+knitr::kable(mapa_tratamientos,
+             caption = "Correspondencia de códigos, tratamientos y grupos HCPC")
 ```
 
 ## Varianza explicada y contribuciones
 
 ```{r}
 #| label: pca-info
+#| fig-width: 17
+#| fig-height: 12
+#| fig-dpi: 150
+#| out-width: "100%"
+#| fig-align: center
+#| column: screen
+#| fig-cap: "Varianza explicada, contribución a las dos primeras dimensiones y calidad de representación (cos²) de las variables."
 
-c1 <- fviz_eig(mv,
-               addlabels = TRUE,
-               hjust = 0.05,
-               barfill = "white",
-               barcolor = "darkblue",
-               linecolor = "red") +
+c1 <- fviz_eig(
+  mv, addlabels = TRUE, hjust = 0.05,
+  barfill = "white", barcolor = "darkblue", linecolor = "red"
+) +
   labs(title = "PCA - porcentaje de varianza explicada",
        y = "Varianza (%)") +
-  theme_minimal()
+  theme_minimal(base_size = 12) +
+  theme(plot.title = element_text(hjust = 0.5))
 
-c2 <- fviz_contrib(mv, choice = "var", axes = 1,
-                   fill = "white", color = "darkblue", sort.val = "asc") +
+c2 <- fviz_contrib(
+  mv, choice = "var", axes = 1,
+  fill = "white", color = "darkblue", sort.val = "asc"
+) +
   labs(title = "Dim 1 - contribución de las variables", x = "") +
-  coord_flip()
+  coord_flip() +
+  theme_minimal(base_size = 12) +
+  theme(axis.text.y = element_text(size = 10),
+        plot.title = element_text(hjust = 0.5))
 
-c3 <- fviz_contrib(mv, choice = "var", axes = 2,
-                   fill = "white", color = "darkblue", sort.val = "asc") +
+c3 <- fviz_contrib(
+  mv, choice = "var", axes = 2,
+  fill = "white", color = "darkblue", sort.val = "asc"
+) +
   labs(title = "Dim 2 - contribución de las variables", x = "") +
-  coord_flip()
+  coord_flip() +
+  theme_minimal(base_size = 12) +
+  theme(axis.text.y = element_text(size = 10),
+        plot.title = element_text(hjust = 0.5))
 
-lpanel <- plot_grid(c1, c2, c3, ncol = 1, labels = "auto",
-                    rel_heights = c(1, 1.2, 1.2))
+# Versión legible del cos², sin la barra de colores superpuesta.
+# Usa EXACTAMENTE los valores de pcainfo$cos2, sin recalcular el PCA.
+matriz_cos2 <- as.matrix(pcainfo$cos2[, 1:2, drop = FALSE])
+datos_cos2 <- as.data.frame(as.table(matriz_cos2))
+colnames(datos_cos2) <- c("Variable", "Dimension", "Cos2")
+datos_cos2$Variable <- factor(
+  datos_cos2$Variable, levels = rev(rownames(matriz_cos2))
+)
 
+c4 <- ggplot(datos_cos2, aes(x = Dimension, y = Variable, fill = Cos2)) +
+  geom_tile(color = "grey75", linewidth = 0.6) +
+  geom_text(aes(label = sprintf("%.2f", Cos2)),
+            size = 4, color = "black") +
+  scale_fill_gradient(low = "white", high = "steelblue3",
+                      limits = c(0, 1)) +
+  labs(title = "Calidad de representación (cos²)",
+       x = "Dimensiones", y = "") +
+  theme_minimal(base_size = 12) +
+  theme(panel.grid = element_blank(),
+        legend.position = "none",
+        axis.text.y = element_text(size = 10),
+        plot.title = element_text(hjust = 0.5))
+
+# Cuatro paneles juntos, con suficiente espacio para cada gráfico.
+lpanel <- plot_grid(
+  c1, c2, c3, c4,
+  ncol = 2, labels = c("a", "b", "c", "d"),
+  label_size = 16, rel_heights = c(1, 1.15)
+)
+
+ggsave(
+  filename = "manuscript/contribucion.jpg", plot = lpanel,
+  units = "cm", width = 44, height = 32, dpi = 300, bg = "white"
+)
+
+# Un solo gráfico en RStudio y en la página web, no cuatro sueltos.
 lpanel
-
-corrplot(pcainfo$cos2[, 1:2],
-         is.corr = FALSE,
-         method = "number",
-         tl.col = "black",
-         tl.srt = 45,
-         number.digits = 2,
-         cl.pos = "r")
-
-ggsave(plot = lpanel, "manuscript/contribucion.jpg", units = "cm",
-       width = 20, height = 30)
 ```
