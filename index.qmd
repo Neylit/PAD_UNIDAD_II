@@ -1,0 +1,425 @@
+---
+title: "Reanálisis estadístico de la producción orgánica de lechuga (Lactuca sativa L.) var. Crespa con fertirriego"
+author: "Miguel, Shirley, Karol y Nilver"
+lang: es
+format:
+  html:
+    toc: true
+    toc-expand: true
+    toc-depth: 3
+    toc-location: left
+    number-sections: true
+    self-contained: true
+    code-fold: false
+execute:
+  warning: false
+  message: false
+  echo: true
+editor_options:
+  chunk_output_type: console
+---
+
+# Análisis de diseño experimental
+
+## Base de datos
+
+Datos transcritos del Anexo 1 de la tesis de Nolberto Boza y Avila Curo (2023, Universidad Nacional de Huancavelica) y verificados contra sus ANOVA. Archivo: `lechuga_fertirriego_corregido.xlsx` (hoja `fb`). Las unidades y la descripción de cada variable están en la hoja `diccionario`.
+
+## Identificar los factores
+
+1. Factor A: Intervalo de fertirriego (`riego`)
+   - R3: cada 3 días
+   - R5: cada 5 días
+
+2. Factor B: Abonos orgánicos (`abono`)
+   - LOHF25TH75: Orina fermentada 25 % + Té de humus 75 %
+   - LOHF50TH50: Orina fermentada 50 % + Té de humus 50 %
+   - LOHF75TH25: Orina fermentada 75 % + Té de humus 25 %
+   - OHF25TH75CE50: Orina fermentada 25 % + Té de humus 75 % + Cenizas de eucalipto 50 g
+   - OHF50TH50CE50: Orina fermentada 50 % + Té de humus 50 % + Cenizas de eucalipto 50 g
+   - OHF75TH25CE50: Orina fermentada 75 % + Té de humus 25 % + Cenizas de eucalipto 50 g
+
+## Identificar el modelo
+
+Diseño de Bloques Completos al Azar (DBCA) con arreglo factorial 2 × 6 y 4 bloques (48 unidades experimentales).
+
+$$
+Y_{ijk} = \mu + \beta_k + \alpha_i + \gamma_j + (\alpha\gamma)_{ij} + \varepsilon_{ijk}
+$$
+
+Donde $\mu$ es la media general, $\beta_k$ el efecto del bloque $k$ ($k = 1, \dots, 4$), $\alpha_i$ el efecto del intervalo de riego $i$ ($i = 1, 2$), $\gamma_j$ el efecto del abono $j$ ($j = 1, \dots, 6$), $(\alpha\gamma)_{ij}$ la interacción riego × abono y $\varepsilon_{ijk}$ el error experimental.
+
+# Preparación
+
+## Paquetes
+
+```{r}
+#| label: paquetes
+
+library(readxl)
+library(googlesheets4)
+library(dplyr)
+library(tidyr)
+library(tibble)
+library(emmeans)
+library(multcomp)
+library(ggplot2)
+library(inti)
+library(car)
+library(knitr)
+library(FactoMineR)
+library(factoextra)
+library(cowplot)
+library(corrplot)
+
+dir.create("manuscript", showWarnings = FALSE)
+```
+
+## Importar datos
+
+```{r}
+#| label: datos
+
+# Para leer desde Google Sheets, reemplaza la URL y descomenta estas líneas:
+# gs4_deauth()
+# fb <- "https://docs.google.com/spreadsheets/d/..." %>%
+#   as_sheets_id() %>%
+#   range_read(sheet = "fb")
+
+fb <- read_excel("lechuga_fertirriego_corregido.xlsx", sheet = "fb")
+
+fb <- fb %>%
+  mutate(
+    riego = factor(riego, levels = c("R3", "R5")),
+    abono = factor(abono, levels = c("LOHF25TH75", "LOHF50TH50", "LOHF75TH25",
+                                     "OHF25TH75CE50", "OHF50TH50CE50", "OHF75TH25CE50")),
+    bloque = factor(bloque, levels = c("I", "II", "III", "IV")),
+    clave = factor(clave)
+  )
+
+str(fb)
+
+# Verificar los datos
+fb %>% summarise(across(where(is.numeric), ~ sum(is.na(.x))))  # NA por variable
+table(fb$riego, fb$abono)                                     # balance: 4 por celda
+```
+
+## Función de análisis
+
+Para cada variable se ajusta el ANOVA, se verifican los supuestos y se comparan las medias con Tukey (α = 0.05). Si la interacción riego × abono es significativa, se comparan los abonos dentro de cada intervalo de riego. Si no lo es, se comparan los efectos principales de riego y de abono por separado.
+
+```{r}
+#| label: funcion
+
+analizar <- function(var, ylab, alpha = 0.05) {
+
+  md <- aov(reformulate(c("bloque", "riego * abono"), response = var), data = fb)
+  av <- anova(md)
+  p_int <- av["riego:abono", "Pr(>F)"]
+  cv <- sqrt(av["Residuals", "Mean Sq"]) / mean(fb[[var]]) * 100
+
+  supuestos <- tibble(
+    prueba = c("Shapiro-Wilk (normalidad de residuos)",
+               "Levene (homogeneidad de varianzas)"),
+    p_valor = c(shapiro.test(residuals(md))$p.value,
+                leveneTest(reformulate("riego * abono", response = var), data = fb)$`Pr(>F)`[1])
+  ) %>%
+    mutate(cumple = ifelse(p_valor > alpha, "Sí", "No"))
+
+  letras <- function(spec) {
+    emmeans(md, spec) %>%
+      multcomp::cld(Letters = letters, decreasing = TRUE, adjust = "tukey") %>%
+      as.data.frame() %>%
+      mutate(.group = trimws(.group))
+  }
+
+  if (p_int < alpha) {
+
+    tab <- letras(~ abono | riego)
+
+    grafico <- plot_smr(
+      data = tab, type = "bar",
+      x = "abono", y = "emmean", group = "riego",
+      error = "SE", sig = ".group",
+      xlab = "Abonos", ylab = ylab, glab = "Riego",
+      xrotation = c(45, 1, 1)
+    )
+
+    comparacion <- "Interacción significativa: abonos comparados dentro de cada riego"
+
+  } else {
+
+    tab_r <- letras(~ riego)
+    tab_a <- letras(~ abono)
+    tab <- bind_rows(tab_r, tab_a)
+
+    g_r <- plot_smr(data = tab_r, type = "bar", x = "riego", y = "emmean",
+                    error = "SE", sig = ".group", xlab = "Riego", ylab = ylab)
+    g_a <- plot_smr(data = tab_a, type = "bar", x = "abono", y = "emmean",
+                    error = "SE", sig = ".group", xlab = "Abonos", ylab = ylab,
+                    xrotation = c(45, 1, 1))
+
+    grafico <- plot_grid(g_r, g_a, ncol = 2, rel_widths = c(1, 2), labels = "auto")
+
+    comparacion <- "Interacción no significativa: efectos principales de riego y abono"
+  }
+
+  list(
+    anova = kable(av, digits = 3,
+                  caption = sprintf("ANOVA de %s (CV = %.2f %%)", ylab, cv)),
+    supuestos = kable(supuestos, digits = 3, caption = "Supuestos del ANOVA"),
+    medias = kable(tab %>% dplyr::select(any_of(c("riego", "abono")), emmean, SE, .group),
+                   digits = 2, caption = comparacion),
+    grafico = grafico
+  )
+}
+```
+
+# Número de hojas
+
+## A los 15 días
+
+```{r}
+r <- analizar("num_hojas_15", "Número de hojas/planta")
+r$anova
+r$supuestos
+r$medias
+r$grafico
+```
+
+## A los 30 días
+
+```{r}
+r <- analizar("num_hojas_30", "Número de hojas/planta")
+r$anova
+r$supuestos
+r$medias
+r$grafico
+```
+
+## A los 45 días
+
+```{r}
+r <- analizar("num_hojas_45", "Número de hojas/planta")
+r$anova
+r$supuestos
+r$medias
+r$grafico
+```
+
+## A los 55 días
+
+```{r}
+r <- analizar("num_hojas_55", "Número de hojas/planta")
+r$anova
+r$supuestos
+r$medias
+r$grafico
+```
+
+# Longitud de hojas
+
+## A los 15 días
+
+```{r}
+r <- analizar("long_hojas_15", "Longitud de hojas (cm)")
+r$anova
+r$supuestos
+r$medias
+r$grafico
+```
+
+## A los 30 días
+
+```{r}
+r <- analizar("long_hojas_30", "Longitud de hojas (cm)")
+r$anova
+r$supuestos
+r$medias
+r$grafico
+```
+
+## A los 45 días
+
+```{r}
+r <- analizar("long_hojas_45", "Longitud de hojas (cm)")
+r$anova
+r$supuestos
+r$medias
+r$grafico
+```
+
+## A los 55 días
+
+```{r}
+r <- analizar("long_hojas_55", "Longitud de hojas (cm)")
+r$anova
+r$supuestos
+r$medias
+r$grafico
+```
+
+# Longitud de raíz
+
+```{r}
+r <- analizar("long_raiz", "Longitud de raíz (cm)")
+r$anova
+r$supuestos
+r$medias
+r$grafico
+```
+
+# Peso fresco
+
+```{r}
+r <- analizar("peso_fresco", "Peso fresco (g/planta)")
+r$anova
+r$supuestos
+r$medias
+r$grafico
+```
+
+# Peso seco
+
+```{r}
+r <- analizar("peso_seco", "Peso seco (g/planta)")
+r$anova
+r$supuestos
+r$medias
+r$grafico
+```
+
+# Clasificación de cabezas
+
+Los conteos de cabezas (de 0 a 7 por parcela) se analizan con la transformación $\sqrt{x + 0.5}$, igual que en la tesis. Las medias y los gráficos están en la escala transformada.
+
+## Cabeza selecta
+
+```{r}
+r <- analizar("cab_selecta", "Cabezas selectas (transformado)")
+r$anova
+r$supuestos
+r$medias
+r$grafico
+```
+
+## Cabeza mediana
+
+```{r}
+r <- analizar("cab_mediana", "Cabezas medianas (transformado)")
+r$anova
+r$supuestos
+r$medias
+r$grafico
+```
+
+## Cabeza tercera
+
+```{r}
+r <- analizar("cab_tercera", "Cabezas de tercera (transformado)")
+r$anova
+r$supuestos
+r$medias
+r$grafico
+```
+
+# Análisis multivariado
+
+Se usan las medias de los 12 tratamientos para las variables al final del ciclo. Con solo 12 individuos, los resultados del PCA y del agrupamiento son exploratorios.
+
+## Componentes principales y agrupamiento
+
+```{r}
+#| label: pca
+
+dtx <- fb %>%
+  group_by(riego, abono, clave) %>%
+  summarise(across(c(num_hojas_55, long_hojas_55, long_raiz, peso_fresco, peso_seco,
+                     cab_selecta_n, cab_mediana_n, cab_tercera_n),
+                   ~ mean(.x, na.rm = TRUE)),
+            .groups = "drop") %>%
+  as.data.frame() %>%
+  column_to_rownames("clave")
+
+str(dtx)
+
+mv <- dtx %>%
+  PCA(scale.unit = TRUE, graph = FALSE, quali.sup = c(1, 2))
+
+p_var <- plot.PCA(mv, choix = "var", cex = 0.7)
+
+p_cos <- fviz_pca_var(mv, col.var = "cos2",
+                      gradient.cols = c("red", "forestgreen", "blue"),
+                      repel = TRUE, labelsize = 3)
+
+p_ind <- plot.PCA(mv, choix = "ind", cex = 0.7, label = "ind",
+                  invisible = "quali", habillage = 1,
+                  col.hab = c("blue", "red"))
+
+# Con 12 tratamientos, el corte automático (nb.clust = -1) da grupos de un solo
+# tratamiento; se fija en 3 grupos para facilitar la interpretación.
+cls <- HCPC(mv, nb.clust = 3, graph = FALSE)
+
+p_cls <- fviz_cluster(cls, repel = TRUE, show.clust.cent = FALSE,
+                      main = "Agrupamiento jerárquico (HCPC)")
+
+pcainfo <- get_pca(mv)
+
+pcainfo$cor %>% kable(digits = 2, caption = "Correlación de las variables con los componentes")
+pcainfo$contrib %>% kable(digits = 2, caption = "Contribución de las variables (%)")
+pcainfo$cos2 %>% kable(digits = 2, caption = "Cos2 de las variables")
+
+cls$data.clust %>% dplyr::select(clust) %>%
+  kable(caption = "Grupo asignado a cada tratamiento")
+table(cls$data.clust$clust) %>%
+  kable(col.names = c("Grupo", "Tratamientos"), caption = "Tratamientos por grupo")
+
+fig_mv <- plot_grid(p_var, p_cos, p_ind, p_cls, ncol = 2, labels = "auto")
+
+ggsave(plot = fig_mv, "manuscript/multivariado.jpg", units = "cm",
+       width = 30, height = 30)
+
+fig_mv
+```
+
+## Varianza explicada y contribuciones
+
+```{r}
+#| label: pca-info
+
+c1 <- fviz_eig(mv,
+               addlabels = TRUE,
+               hjust = 0.05,
+               barfill = "white",
+               barcolor = "darkblue",
+               linecolor = "red") +
+  labs(title = "PCA - porcentaje de varianza explicada",
+       y = "Varianza (%)") +
+  theme_minimal()
+
+c2 <- fviz_contrib(mv, choice = "var", axes = 1,
+                   fill = "white", color = "darkblue", sort.val = "asc") +
+  labs(title = "Dim 1 - contribución de las variables", x = "") +
+  coord_flip()
+
+c3 <- fviz_contrib(mv, choice = "var", axes = 2,
+                   fill = "white", color = "darkblue", sort.val = "asc") +
+  labs(title = "Dim 2 - contribución de las variables", x = "") +
+  coord_flip()
+
+lpanel <- plot_grid(c1, c2, c3, ncol = 1, labels = "auto",
+                    rel_heights = c(1, 1.2, 1.2))
+
+lpanel
+
+corrplot(pcainfo$cos2[, 1:2],
+         is.corr = FALSE,
+         method = "number",
+         tl.col = "black",
+         tl.srt = 45,
+         number.digits = 2,
+         cl.pos = "r")
+
+ggsave(plot = lpanel, "manuscript/contribucion.jpg", units = "cm",
+       width = 20, height = 30)
+```
