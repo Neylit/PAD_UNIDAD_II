@@ -46,7 +46,6 @@ Diseño de Bloques Completos al Azar (DBCA) con arreglo factorial 2 × 6 y 4 blo
 $$
 Y_{ijk} = \mu + \beta_k + \alpha_i + \gamma_j + (\alpha\gamma)_{ij} + \varepsilon_{ijk}
 $$
-
 # Activar los paquetes
 
 ```{r}
