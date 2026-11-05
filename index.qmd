@@ -25,8 +25,6 @@ editor_options:
 
 > https://docs.google.com/spreadsheets/d/1r-V0iWepowbrN8ofTiKwqnJDOYkb_C9R_9NvnEt538c/edit?usp=sharing
 
-Datos de la tesis de Nolberto Boza y Avila Curo (2023), Universidad Nacional de Huancavelica: *Producción orgánica de lechuga (Lactuca sativa L.) Var. Crespa, con fertirriego en la provincia de Acobamba – Huancavelica*.
-
 ## Identificar los factores
 
 1. Factor A: Intervalo de fertirriego (`riego`)
@@ -49,8 +47,6 @@ $$
 Y_{ijk} = \mu + \beta_k + \alpha_i + \gamma_j + (\alpha\gamma)_{ij} + \varepsilon_{ijk}
 $$
 
-Donde $\beta_k$ es el efecto del bloque, $\alpha_i$ el efecto del riego, $\gamma_j$ el efecto del abono, $(\alpha\gamma)_{ij}$ la interacción riego × abono y $\varepsilon_{ijk}$ el error experimental.
-
 # Activar los paquetes
 
 ```{r}
@@ -72,9 +68,12 @@ library(corrplot)
 
 dir.create("manuscript", showWarnings = FALSE)
 
-# La hoja es pública: se lee sin iniciar sesión en Google
 gs4_deauth()
+```
 
+
+## Data import
+```{r}
 gs <- "https://docs.google.com/spreadsheets/d/1r-V0iWepowbrN8ofTiKwqnJDOYkb_C9R_9NvnEt538c/edit?usp=sharing" %>%
   as_sheets_id()
 
@@ -429,7 +428,7 @@ pl <- plot_smr(
   ylab = "Longitud",
   xrotation = c(45, 1, 1)
 ) +
-  ggplot2::labs(x = "Abonos", y = "Longitud de hojas (cm)")
+  ggplot2::labs(x = "Abonos", y = "Longitud de hojas 45 días (cm)")
 
 pl
 ```
@@ -476,7 +475,7 @@ pl <- plot_smr(
   ylab = "Longitud",
   xrotation = c(45, 1, 1)
 ) +
-  ggplot2::labs(x = "Abonos", y = "Longitud de hojas (cm)")
+  ggplot2::labs(x = "Abonos", y = "Longitud de hojas 55 días (cm)")
 
 pl
 ```
